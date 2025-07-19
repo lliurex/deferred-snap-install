@@ -1,0 +1,181 @@
+#!/bin/sh
+
+#  Description:
+#
+# Simple tool to prepare deferred snap installation
+#
+
+###############
+# global vars #
+###############
+
+SNAP_BASE_MOUNT="$(mktemp -d)"
+SNAP_BASE_LIST0="snapd bare core"
+SNAP_BASE_LIST=""
+SNAP_DEPENDS_LIST=""
+SNAP_DIR=""
+SNAP_META="meta/snap.yaml"
+
+# AVAILABLE values:
+## NONE (or empty)
+## DEBUG
+## FULL
+SNAP_DEBUG="DEBUG"
+
+do_clean(){
+	for d in $(ls -1 "$SNAP_BASE_MOUNT") ; do
+		debug_message "Unmounting $SNAP_BASE_MOUNT/$d"
+		umount -l "$SNAP_BASE_MOUNT/$d" 2> /dev/null
+	done
+	rm -fr "$SNAP_BASE_MOUNT"
+}
+
+die(){
+	do_clean
+        TYPE="ERROR"
+        if [ "$#" -gt 1 ] ; then
+                TYPE="$1"
+                shift
+        fi
+        printf "${TYPE}: " >&2
+        while [ "$1" ] ; do
+                echo "$1" >&2
+                shift
+        done
+        echo "" >&2
+
+        exit 1
+}
+
+usage(){
+	die "Usage" "$(basename "$0") {SNAP_PACKAGE} {SNAPS_DIR}" \
+	"       Download SNAP_PACKAGE and related dependencies into SNAPS_DIR"
+}
+
+debug_run(){
+	TXT="$1"
+	CMD="$2"
+	debug_message "$1"
+	if [ "$SNAP_DEBUG" = "FULL" ] ; then
+		debug_message "Command to run: $CMD"
+		$CMD
+	else
+		$CMD >/dev/null 2>/dev/null
+	fi
+}
+
+debug_message(){
+	[ -z "$SNAP_DEBUG" ] || echo "DEBUG: $1" >&2
+}
+
+snap_is_downloaded(){
+	SNAP_NAME="$1"
+	SNAP_FILE="${SNAP_DIR}/${SNAP_NAME}.snap"
+	[ -s "$SNAP_FILE" ] || return 1
+	return 0
+}
+
+snap_download(){
+	SNAP_NAME="$1"
+	! snap_is_downloaded "$SNAP_NAME" || return 0
+
+	CMD="snap download --basename $SNAP_NAME --target-directory $SNAP_DIR $SNAP_NAME"
+	debug_run "Downloading $SNAP_NAME" "$CMD"
+	#snap download --basename "$SNAP_NAME" --target-directory "$SNAP_DIR" "$SNAP_NAME" > /dev/null
+	snap_is_downloaded "$SNAP_NAME" || return 1
+	return 0
+}
+
+snap_get_meta(){
+	SNAP_NAME="$1"
+	SNAP_META_FILE="$SNAP_BASE_MOUNT/$SNAP_NAME/$SNAP_META"
+	echo "$SNAP_META_FILE"
+}
+
+snap_parse_meta(){
+	sed -ne "/^\s*${2}:\s/{s%^.*:\s%%;p}" "$(snap_get_meta "$1")"
+}
+
+meta_get_base(){
+	snap_parse_meta "$1" "base"
+}
+
+meta_get_depends(){
+	snap_parse_meta "$1" "default-provider"
+}
+
+list_add(){
+	ACTUAL_LIST="$1"
+	NEW_ELEMENT="$2"
+	if ! echo " $ACTUAL_LIST " |grep -qF " $NEW_ELEMENT " ; then
+		echo "$ACTUAL_LIST $NEW_ELEMENT"
+	else
+		echo "$ACTUAL_LIST"
+	fi
+
+}
+
+snap_add_base(){
+	for s in $(meta_get_base "$1") ; do
+		SNAP_BASE_LIST="$(list_add "$SNAP_BASE_LIST" "$s")"
+	done
+}
+
+snap_is_mounted(){
+	[ -e "$(snap_get_meta "$1")" ] || return 1
+	return 0
+}
+	
+snap_mount(){
+	SNAP_NAME="$1"
+	! snap_is_mounted "$SNAP_NAME" || return 0
+	SNAP_FILE="${SNAP_DIR}/${SNAP_NAME}.snap"
+	MNT_DIR="$SNAP_BASE_MOUNT/$SNAP_NAME"
+	mkdir -p "$MNT_DIR"
+	CMD="mount -t squashfs $SNAP_FILE $MNT_DIR"
+	debug_run "Mounting $SNAP_NAME" "$CMD"
+	#mount -t squashfs "$SNAP_FILE" "$MNT_DIR" >/dev/null 2>/dev/null
+	snap_is_mounted "$SNAP_NAME" || return 1
+	return 0
+}
+
+do_snap_full_parse(){
+	SNAP_NAME="$1"
+	# test mount status to determine if the snap is already processed
+	! snap_is_mounted "$SNAP_NAME" || return 0
+	debug_message "Full parse of $SNAP_NAME"
+	snap_download "$SNAP_NAME" || die "Unable to download $SNAP_NAME"
+	snap_mount "$SNAP_NAME" || die "Unable to mount $SNAP_NAME"
+	snap_add_base "$SNAP_NAME"
+	for s in $(meta_get_depends "$SNAP_NAME") ; do
+		SNAP_DEPENDS_LIST="$(list_add "$SNAP_DEPENDS_LIST" "$s")"
+		# do recursive parse
+		do_snap_full_parse "$s"
+	done
+}
+
+main(){
+	[ "$1" ] || usage
+	SNAP_PACKAGE="$1"
+	shift
+	[ "$1" ] || usage
+	SNAP_DIR="$1"
+	[ "$1" ] || usage
+
+	[ -d "$SNAP_DIR" ] || mkdir -p "$SNAP_DIR"
+	[ -d "$SNAP_DIR" ] || die "Unable tp create $SNAP_DIR"
+
+	do_snap_full_parse "$SNAP_PACKAGE"
+	echo "BASE: $SNAP_BASE_LIST"
+	echo "DEPENDS: $SNAP_DEPENDS_LIST"
+	do_clean
+	return 0
+}
+
+
+################
+# main program #
+################
+main "$@"
+exit 0
+
