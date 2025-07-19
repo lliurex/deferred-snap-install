@@ -14,11 +14,14 @@ SNAP_BASE_LIST="snapd bare core"
 SNAP_DEPENDS_LIST=""
 SNAP_DIR=""
 SNAP_META="meta/snap.yaml"
+ROOT_REQUIRED=""
+
 # search for squashfuse
 MOUNT_CMD="$(which squashfuse)"
 if [ -z "$MOUNT_CMD" ] ; then
 	# revert to mount command if squashfuse is not available
 	MOUNT_CMD="mount -t squashfs"
+	ROOT_REQUIRED="Y"
 fi
 
 # AVAILABLE values:
@@ -172,11 +175,21 @@ main(){
 	[ "$1" ] || usage
 	SNAP_DIR="$1"
 	[ "$1" ] || usage
+	if [ -z "$ROOT_REQUIRED" ] ; then
+		[ $(id -u) -eq 0 ] || die "Root privileges required"
+	fi
 
 	[ -d "$SNAP_DIR" ] || mkdir -p "$SNAP_DIR"
 	[ -d "$SNAP_DIR" ] || die "Unable tp create $SNAP_DIR"
 
 	do_snap_full_parse "$SNAP_PACKAGE"
+	# add SNAP_PACKAGE to SNAP_DEPENDS_LIST
+	SNAP_DEPENDS_LIST="$(list_add "$SNAP_DEPENDS_LIST" "$SNAP_PACKAGE")"
+	# download BASE_LIST
+	for s in $SNAP_BASE_LIST ; do
+		snap_download "$s" || die "Unable to download $s"
+	done
+
 	# show lists of snaps in reverse order
 	echo "BASE: $(list_reverse "$SNAP_BASE_LIST")"
 	echo "DEPENDS: $(list_reverse "$SNAP_DEPENDS_LIST")"
