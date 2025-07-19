@@ -14,6 +14,12 @@ SNAP_BASE_LIST="snapd bare core"
 SNAP_DEPENDS_LIST=""
 SNAP_DIR=""
 SNAP_META="meta/snap.yaml"
+# search for squashfuse
+MOUNT_CMD="$(which squashfuse)"
+if [ -z "$MOUNT_CMD" ] ; then
+	# revert to mount command if squashfuse is not available
+	MOUNT_CMD="mount -t squashfs"
+fi
 
 # AVAILABLE values:
 ## NONE (or empty)
@@ -137,7 +143,7 @@ snap_mount(){
 	SNAP_FILE="${SNAP_DIR}/${SNAP_NAME}.snap"
 	MNT_DIR="$SNAP_BASE_MOUNT/$SNAP_NAME"
 	mkdir -p "$MNT_DIR"
-	CMD="mount -t squashfs $SNAP_FILE $MNT_DIR"
+	CMD="$MOUNT_CMD $SNAP_FILE $MNT_DIR"
 	debug_run "Mounting $SNAP_NAME" "$CMD"
 	#mount -t squashfs "$SNAP_FILE" "$MNT_DIR" >/dev/null 2>/dev/null
 	snap_is_mounted "$SNAP_NAME" || return 1
