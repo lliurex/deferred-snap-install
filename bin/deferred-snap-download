@@ -10,8 +10,7 @@
 ###############
 
 SNAP_BASE_MOUNT="$(mktemp -d)"
-SNAP_BASE_LIST0="snapd bare core"
-SNAP_BASE_LIST=""
+SNAP_BASE_LIST="snapd bare core"
 SNAP_DEPENDS_LIST=""
 SNAP_DIR=""
 SNAP_META="meta/snap.yaml"
@@ -20,7 +19,7 @@ SNAP_META="meta/snap.yaml"
 ## NONE (or empty)
 ## DEBUG
 ## FULL
-SNAP_DEBUG="DEBUG"
+SNAP_DEBUG=""
 
 do_clean(){
 	for d in $(ls -1 "$SNAP_BASE_MOUNT") ; do
@@ -65,7 +64,9 @@ debug_run(){
 }
 
 debug_message(){
-	[ -z "$SNAP_DEBUG" ] || echo "DEBUG: $1" >&2
+	if [ "$SNAP_DEBUG" ] && [ "$SNAP_DEBUG" != "NONE" ] ; then
+		echo "DEBUG: $1" >&2
+	fi
 }
 
 snap_is_downloaded(){
@@ -113,6 +114,10 @@ list_add(){
 		echo "$ACTUAL_LIST"
 	fi
 
+}
+
+list_reverse(){
+	echo "$1" |tr " " "\n" |tac |tr "\n" " " |sed -e "s%\s*$%%"
 }
 
 snap_add_base(){
@@ -166,8 +171,9 @@ main(){
 	[ -d "$SNAP_DIR" ] || die "Unable tp create $SNAP_DIR"
 
 	do_snap_full_parse "$SNAP_PACKAGE"
-	echo "BASE: $SNAP_BASE_LIST"
-	echo "DEPENDS: $SNAP_DEPENDS_LIST"
+	# show lists of snaps in reverse order
+	echo "BASE: $(list_reverse "$SNAP_BASE_LIST")"
+	echo "DEPENDS: $(list_reverse "$SNAP_DEPENDS_LIST")"
 	do_clean
 	return 0
 }
